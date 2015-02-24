@@ -8,6 +8,9 @@ __included_shell_unittest=1
 
 . shell-error
 
+### Only perform these tests.
+TESTCASES="${TESTCASES-}"
+
 ### Append tests condition to comment message if test failed.
 unittest_show_condition="${unittest_show_condition-}"
 
@@ -227,6 +230,27 @@ showSummary()
 ### Run tests.
 runUnitTests()
 {
+	need_test()
+	{
+		local __="$1"
+		shift
+		[ "$#" -gt 0 ] ||
+			return 0
+		while [ "$#" -gt 0 ]; do
+			[ "$1" != "$__" ] ||
+				return 0
+			shift
+		done
+		return 1
+	}
+	run_test()
+	{
+		if [ -n "${TESTTRACE-}" ]; then
+			printf '\n' >&2
+			set -x
+		fi
+		"$1"
+	}
 	run_or_exit()
 	{
 		"$@" || fatal "$1() fail rc=$?"
@@ -241,15 +265,31 @@ runUnitTests()
 	local retval=0 rc passed=0 failed=0 skipped=0 total="$#"
 
 	while [ "$#" -gt 0 ]; do
+		if ! need_test "$1" ${TESTCASES-}; then
+			shift
+			continue
+		fi
+
 		run_or_exit setUp
 
 		rc=0
-		msg="$("$1")" || rc=$?
+		msg="$(run_test "$1")" || rc=$?
 
 		case "$rc" in
 			0) passed=$(($passed+1)) ;;
 			1) failed=$(($failed+1)); retval=1; ;;
 			2) skipped=$(($skipped+1)) ;;
+			*)
+				{
+					printf '\n'
+					printf 'FATAL: Unexpected return code.\n'
+					printf '\n'
+					printf '%s\n' "Testcase '$1' ended with an unexpected return code: rc=$rc"
+					printf '%s\n' "Check its correctness. Return code must be success=0, fail=1, skipped=2."
+				} >&2
+				retval=1
+				break
+				;;
 		esac
 		run_or_exit messageTest "$1" "$msg" "$rc"
 		run_or_exit tearDown
